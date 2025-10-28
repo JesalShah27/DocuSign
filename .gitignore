@@ -20,3 +20,4 @@ backend/certs/
 
 # Upload storage
 backend/storage/
+.continue/
