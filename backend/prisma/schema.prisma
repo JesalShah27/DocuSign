@@ -1,0 +1,196 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  role          Role     @default(USER)
+  mfaSecret     String?  // TOTP secret if MFA enabled
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  documents     Document[]
+  envelopes     Envelope[] @relation("OwnerEnvelopes")
+  emailVerificationTokens EmailVerificationToken[]
+}
+
+model Document {
+  id                    String    @id @default(cuid())
+  ownerId               String
+  owner                 User      @relation(fields: [ownerId], references: [id])
+  originalName          String
+  storagePath           String    // path to original document file
+  mimeType              String
+  sizeBytes             Int
+  originalHash          String?   // SHA-256 hash of original uploaded PDF
+  completeSignedPdfHash String?   // SHA-256 hash of complete signed PDF (final result)
+  signedPdfPath         String?   // path to the complete signed PDF file
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  envelopes             Envelope[]
+  signatureHistory      SignatureHistory[]
+}
+
+model Envelope {
+  id             String           @id @default(cuid())
+  ownerId        String
+  owner          User             @relation("OwnerEnvelopes", fields: [ownerId], references: [id])
+  documentId     String
+  document       Document         @relation(fields: [documentId], references: [id])
+  status         EnvelopeStatus   @default(DRAFT)
+  subject        String?
+  message        String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  completedAt    DateTime?
+
+  signers        EnvelopeSigner[]
+  auditLogs      AuditLog[]
+  fields         DocumentField[]
+}
+
+model EnvelopeSigner {
+  id             String         @id @default(cuid())
+  envelopeId     String
+  envelope       Envelope       @relation(fields: [envelopeId], references: [id])
+  email          String
+  name           String
+  role           SignerRole     @default(SIGNER)
+  routingOrder   Int            @default(1)
+  accessCode     String?    // Optional access code for additional security
+  otpCode       String?    // Generated OTP for verification
+  otpExpiry     DateTime?  // When the OTP expires
+  otpVerified   Boolean    @default(false)
+  sessionToken  String?    @unique  // JWT token for authenticated session
+  sessionExpiry DateTime?  // When the session expires
+  signingLink   String     @unique
+  signedAt      DateTime?
+  declinedAt    DateTime?
+  ipAddress     String?
+  userAgent     String?
+  geo           String?    // country/city if available
+
+  signature      Signature?
+  fields         DocumentField[]
+}
+
+model DocumentField {
+  id          String         @id @default(cuid())
+  envelopeId  String
+  envelope    Envelope       @relation(fields: [envelopeId], references: [id], onDelete: Cascade)
+  signerId    String
+  signer      EnvelopeSigner @relation(fields: [signerId], references: [id], onDelete: Cascade)
+  type        FieldType      // SIGNATURE, DATE, TEXT, etc.
+  page        Int
+  x           Float
+  y           Float
+  width       Float
+  height      Float
+  required    Boolean        @default(true)
+  value       String?        // Filled value (signature image, date, text)
+  label       String?        // Optional field label
+  fontFamily  String?
+  fontSize    Int?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([envelopeId])
+  @@index([signerId])
+}
+
+model Signature {
+  id             String         @id @default(cuid())
+  signerId       String         @unique
+  signer         EnvelopeSigner @relation(fields: [signerId], references: [id])
+  consentGiven   Boolean        @default(false)
+  consentText    String?
+  imagePath      String?        // stored signature image path/key
+  drawnPoints    Json?          // optional vector data
+  createdAt      DateTime       @default(now())
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  envelopeId     String
+  envelope       Envelope      @relation(fields: [envelopeId], references: [id])
+  timestamp      DateTime      @default(now())
+  actorEmail     String?
+  actorRole      String?
+  ipAddress      String?
+  userAgent      String?
+  event          String        // e.g., SENT, VIEWED, SIGNED, COMPLETED
+  details        Json?
+}
+
+model SignatureHistory {
+  id                    String   @id @default(cuid())
+  documentId            String
+  document              Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signerName            String   // Name of the person who signed
+  signerEmail           String   // Email of the person who signed
+  signatureStep         Int      // Step number in signing process (1, 2, 3...)
+  completeSignedPdfPath String   // Path to complete signed PDF at this step
+  completeSignedPdfHash String   // SHA-256 hash of complete signed PDF at this step
+  signedAt              DateTime // When this signature was applied
+  createdAt             DateTime @default(now())
+
+  @@unique([documentId, signatureStep])
+}
+
+model EmailVerificationToken {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  otpCode    String
+  expiresAt  DateTime
+  consumedAt DateTime?
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  USER
+  GUEST
+}
+
+enum EnvelopeStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PARTIALLY_SIGNED
+  COMPLETED
+  DECLINED
+  VOIDED
+}
+
+enum SignerRole {
+  SIGNER
+  CC
+}
+
+enum FieldType {
+  SIGNATURE
+  DATE
+  TEXT
+  CHECKBOX
+  INITIAL
+}

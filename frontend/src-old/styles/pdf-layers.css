@@ -1,0 +1,14 @@
+.annotationLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.annotationLayer section {
+  position: absolute;
+  background-color: transparent;
+  box-sizing: border-box;
+  transform-origin: 0 0;
+}
