@@ -27,10 +27,7 @@ services:
         destination: /index.html
     envVars:
       - key: REACT_APP_API_URL
-        fromService:
-          name: docusign-backend
-          type: web
-          property: url
+        value: https://docusign-backend.onrender.com
 
 databases:
   - name: docusign-db
